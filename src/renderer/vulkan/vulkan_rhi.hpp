@@ -1,0 +1,26 @@
+#pragma once
+
+#include <misc/utils.hpp>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
+
+namespace TBD {
+
+class Window;
+
+class VulkanRHI {
+    TBD_NO_COPY_MOVE(VulkanRHI)
+public:
+    VulkanRHI() = delete;
+
+    VulkanRHI(const Window& _window);
+
+    ~VulkanRHI();
+
+private:
+    VkInstance _instance;
+    VkPhysicalDevice _gpu;
+    VkDevice _device;
+};
+
+} // namespace TBD

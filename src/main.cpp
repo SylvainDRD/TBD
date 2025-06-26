@@ -1,14 +1,12 @@
 #include <misc/utils.hpp>
+#include <general/engine.hpp>
+
+using namespace TBD;
 
 int main() {
-	LOG("TEST");
-	LOG("TEST" << "dsqd");
-	WARN("TEST");
-	WARN("TEST" << "dsqd");
-	ERROR("TEST");
-	ERROR("TEST" << "dsqd");
-	DEBUG("TEST");
-	DEBUG("TEST" << "dsqd");
+	Engine engine;
 
+	engine.run();
+	
 	return 0;
 }
