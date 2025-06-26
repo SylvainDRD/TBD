@@ -19,6 +19,9 @@ public:
 
 private:
     VkInstance _instance;
+#if PROJECT_DEBUG
+    VkDebugUtilsMessengerEXT _debugUtilsMessenger;
+#endif
     VkPhysicalDevice _gpu;
     VkDevice _device;
 };

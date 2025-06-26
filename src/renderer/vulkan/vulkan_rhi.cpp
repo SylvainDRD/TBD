@@ -1,20 +1,25 @@
 #include "vulkan_rhi.hpp"
+#include "vulkan_utils.hpp"
 #include <general/window.hpp>
 #include <vulkan/vulkan_core.h>
-#include "vulkan_utils.hpp"
 
 namespace TBD {
 
 VulkanRHI::VulkanRHI(const Window& Window)
 {
-    const VkInstanceCreateInfo instanceCreateInfo = initInstanceCreateInfo(Window.requiredVulkanExtensions());
-    
-    // TODO: fix, the vector holding the extension names is clear on initInstanceCreateInfo return
-    // TODO: check result + test layers
-    vkCreateInstance(&instanceCreateInfo, nullptr, &_instance);
+    _instance = createVkInstance(Window.requiredVulkanExtensions());
+#if PROJECT_DEBUG
+    _debugUtilsMessenger = createDebugMessenger(_instance);
+#endif
 }
 
-VulkanRHI::~VulkanRHI() {
+VulkanRHI::~VulkanRHI()
+{
+#if PROJECT_DEBUG
+    PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(_instance, "vkDestroyDebugUtilsMessengerEXT"));
+    destroyDebugMessenger(_instance, _debugUtilsMessenger, nullptr);
+#endif
+
     vkDestroyInstance(_instance, nullptr);
 }
 
