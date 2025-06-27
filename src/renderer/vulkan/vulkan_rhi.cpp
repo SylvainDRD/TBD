@@ -1,6 +1,7 @@
 #include "vulkan_rhi.hpp"
 #include "misc/utils.hpp"
 #include "vulkan_utils.hpp"
+#include <cstddef>
 #include <general/window.hpp>
 #include <vulkan/vulkan_core.h>
 
@@ -9,6 +10,7 @@ namespace TBD {
 VulkanRHI::VulkanRHI(const Window& Window)
 {
     _instance = createVkInstance(Window.requiredVulkanExtensions());
+
 #if PROJECT_DEBUG
     _debugUtilsMessenger = createDebugMessenger(_instance);
 #endif
@@ -20,8 +22,8 @@ VulkanRHI::VulkanRHI(const Window& Window)
 
     _device = createLogicalDevice(_gpu, queues);
 
-    vkGetDeviceQueue(_device, queues.GraphicsQueueID, 0, &_graphicsQueue);
-    vkGetDeviceQueue(_device, queues.PresentQueueID, 0, &_presentQueue);
+    vkGetDeviceQueue(_device, queues.GraphicsQueueFamilyID, 0, &_graphicsQueue);
+    vkGetDeviceQueue(_device, queues.PresentQueueFamilyID, 0, &_presentQueue);
 
     // The extent provided should match the surface, hopefully glfw
     _swapchain = createSwapchain(_device, _gpu, _surface, queues, { Window.width(), Window.height() });
@@ -36,10 +38,19 @@ VulkanRHI::VulkanRHI(const Window& Window)
     for (uint32_t i = 0; i < swapchainImageCount; ++i) {
         _swapchainImageViews[i] = createImageView(_device, _swapchainImages[i], VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D);
     }
+
+    _presentSemaphores.resize(_swapchainImages.size());
+    _renderSemaphores.resize(_swapchainImages.size());
+
+    _commandPool = createCommandPool(_device, queues.GraphicsQueueFamilyID);
+
+    allocateCommandBuffers(_device, _commandPool, MaxFramesInFlight, _commandBuffers.data());
 }
 
 VulkanRHI::~VulkanRHI()
 {
+    vkDestroyCommandPool(_device, _commandPool, nullptr);
+
     for (uint32_t i = 0; i < _swapchainImageViews.size(); ++i) {
         vkDestroyImageView(_device, _swapchainImageViews[i], nullptr);
     }
@@ -55,7 +66,7 @@ VulkanRHI::~VulkanRHI()
 
     vkDestroyInstance(_instance, nullptr);
 
-    TBD_LOG("Vulkan objects cleanup complete");
+    TBD_LOG("Vulkan objects cleanup completed");
 }
 
 } // namespace TBD

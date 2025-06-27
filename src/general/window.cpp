@@ -22,7 +22,7 @@ Window::Window()
         ABORT("Window creation failed");
     }
 
-    TBD_LOG("Window creation complete");
+    TBD_LOG("Window creation completed");
 }
 
 Window::~Window()

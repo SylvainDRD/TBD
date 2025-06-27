@@ -88,10 +88,10 @@ inline VkDebugUtilsMessengerEXT createDebugMessenger(VkInstance instance)
 }
 
 struct PhysicalDeviceQueueFamilyID {
-    uint32_t GraphicsQueueID = TBD_MAX_T(uint32_t);
-    uint32_t PresentQueueID = TBD_MAX_T(uint32_t);
+    uint32_t GraphicsQueueFamilyID = TBD_MAX_T(uint32_t);
+    uint32_t PresentQueueFamilyID = TBD_MAX_T(uint32_t);
 
-    inline bool isValid() const { return GraphicsQueueID != TBD_MAX_T(uint32_t) && PresentQueueID != TBD_MAX_T(uint32_t); }
+    inline bool isValid() const { return GraphicsQueueFamilyID != TBD_MAX_T(uint32_t) && PresentQueueFamilyID != TBD_MAX_T(uint32_t); }
 };
 
 inline std::pair<VkPhysicalDevice, PhysicalDeviceQueueFamilyID> selectPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
@@ -105,7 +105,7 @@ inline std::pair<VkPhysicalDevice, PhysicalDeviceQueueFamilyID> selectPhysicalDe
     PhysicalDeviceQueueFamilyID queues {};
     std::vector<VkQueueFamilyProperties> queueData { 16 };
 
-    const char* selectedDeviceName;
+    std::string selectedDeviceName;
     uint32_t deviceId = TBD_MAX_T(uint32_t);
 
     for (uint32_t i = 0; i < physicalDeviceCount; ++i) {
@@ -113,7 +113,7 @@ inline std::pair<VkPhysicalDevice, PhysicalDeviceQueueFamilyID> selectPhysicalDe
         vkGetPhysicalDeviceProperties(availableGpus[i], &properties);
 
         if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-            || properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU && deviceId == TBD_MAX_T(uint32_t)) {
+            || (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU && deviceId == TBD_MAX_T(uint32_t))) {
             uint32_t familyCount;
             vkGetPhysicalDeviceQueueFamilyProperties(availableGpus[i], &familyCount, nullptr);
 
@@ -122,19 +122,21 @@ inline std::pair<VkPhysicalDevice, PhysicalDeviceQueueFamilyID> selectPhysicalDe
 
             queues = {};
             for (int32_t queueId = 0; queueId < familyCount; ++queueId) {
-                if (queues.GraphicsQueueID == TBD_MAX_T(decltype(queues.GraphicsQueueID)) && queueData[queueId].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                    queues.GraphicsQueueID = queueId;
+                if (queues.GraphicsQueueFamilyID == TBD_MAX_T(decltype(queues.GraphicsQueueFamilyID)) && queueData[queueId].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    queues.GraphicsQueueFamilyID = queueId;
                 }
 
-                if (queues.PresentQueueID == TBD_MAX_T(decltype(queues.PresentQueueID))) {
+                if (queues.PresentQueueFamilyID == TBD_MAX_T(decltype(queues.PresentQueueFamilyID))) {
                     VkBool32 supported;
                     vkGetPhysicalDeviceSurfaceSupportKHR(availableGpus[i], queueId, surface, &supported);
-                    queues.PresentQueueID = queueId;
+                    queues.PresentQueueFamilyID = queueId;
                 }
             }
 
-            deviceId = i;
-            selectedDeviceName = properties.deviceName;
+            if (queues.isValid()) {
+                deviceId = i;
+                selectedDeviceName = properties.deviceName;
+            }
         }
     }
 
@@ -151,7 +153,7 @@ inline std::pair<VkPhysicalDevice, PhysicalDeviceQueueFamilyID> selectPhysicalDe
 
 inline VkDevice createLogicalDevice(VkPhysicalDevice gpu, PhysicalDeviceQueueFamilyID queues)
 {
-    std::unordered_set<uint32_t> queueIndices { queues.GraphicsQueueID, queues.PresentQueueID };
+    std::unordered_set<uint32_t> queueIndices { queues.GraphicsQueueFamilyID, queues.PresentQueueFamilyID };
 
     const float priority = 1.f;
     std::vector<VkDeviceQueueCreateInfo> queuesCreateInfo {};
@@ -222,7 +224,7 @@ inline VkSwapchainKHR createSwapchain(VkDevice device, VkPhysicalDevice gpu, VkS
         .oldSwapchain = previousSwapchain
     };
 
-    if (queues.GraphicsQueueID != queues.PresentQueueID) {
+    if (queues.GraphicsQueueFamilyID != queues.PresentQueueFamilyID) {
         swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         swapchainCreateInfo.queueFamilyIndexCount = 2;
         swapchainCreateInfo.pQueueFamilyIndices = (uint32_t*)&queues; // a bit freaky
@@ -262,6 +264,35 @@ inline VkImageView createImageView(VkDevice device, VkImage image, VkFormat form
     }
 
     return view;
+}
+
+inline VkCommandPool createCommandPool(VkDevice device, uint32_t queueFamilyIndex)
+{
+    VkCommandPoolCreateInfo commandPoolCreateInfo {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = queueFamilyIndex
+    };
+
+    VkCommandPool commandPool;
+    if (vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, &commandPool) != VK_SUCCESS) {
+        ABORT_VK("Vulkan command pool creation failed");
+    }
+
+    return commandPool;
+}
+
+inline void allocateCommandBuffers(VkDevice device, VkCommandPool commandPool, uint32_t bufferCount, VkCommandBuffer *buffers) {
+    VkCommandBufferAllocateInfo cbAllocInfo {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = bufferCount
+    };
+
+    if(vkAllocateCommandBuffers(device, &cbAllocInfo, buffers) != VK_SUCCESS) {
+        ABORT_VK("Vulkan command buffers allocation failed");
+    }
 }
 
 } // namespace TBD
