@@ -27,10 +27,12 @@ if(NOT CMAKE_BUILD_TYPE MATCHES ".*Release.*")
 	add_definitions(-DPROJECT_DEBUG)
 endif()
 
-target_compile_features(${binary} PRIVATE cxx_std_17) 
+target_compile_features(${binary} PRIVATE cxx_std_20) 
 
 # External dependencies
 find_package(Vulkan REQUIRED)
+
+target_include_directories(${binary} PRIVATE ${Vulkan_INCLUDE_DIRS})
 
 set(external ${CMAKE_SOURCE_DIR}/external)
 
@@ -40,5 +42,5 @@ target_include_directories(${binary} PRIVATE ${external}/glm)
 add_subdirectory(${CMAKE_SOURCE_DIR}/external/glfw)
 target_include_directories(${binary} PRIVATE ${external}/glfw/include)
 
-target_link_libraries(${binary} glfw vulkan)
+target_link_libraries(${binary} glfw ${Vulkan_LIBRARIES})
 add_dependencies(${binary} glfw)

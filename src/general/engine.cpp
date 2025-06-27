@@ -18,7 +18,7 @@ void Engine::run()
 {
     while (!_window.windowClosing()) {
 
-        _window.pollEvents();
+        _window.update();
     }
 }
 

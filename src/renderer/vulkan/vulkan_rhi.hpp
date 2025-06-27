@@ -29,6 +29,10 @@ private:
 
     VkQueue _graphicsQueue;
     VkQueue _presentQueue;
+
+    VkSwapchainKHR _swapchain;
+    std::vector<VkImage> _swapchainImages;
+    std::vector<VkImageView> _swapchainImageViews;
 };
 
 } // namespace TBD

@@ -17,7 +17,11 @@ public:
 
     [[nodiscard]] VkSurfaceKHR createVkSurface(VkInstance instance) const;
 
-    inline void pollEvents() { glfwPollEvents(); }
+    inline uint32_t width() const { return _width; }
+
+    inline uint32_t height() const { return _height; }
+
+    inline void update() { glfwPollEvents(); }
 
     [[nodiscard]] inline bool windowClosing() const { return glfwWindowShouldClose(_window); }
 
@@ -25,6 +29,10 @@ public:
 
 private:
     GLFWwindow* _window;
+
+    uint32_t _width;
+
+    uint32_t _height;
 };
 
 } // namespace TBD

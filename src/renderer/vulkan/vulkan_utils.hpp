@@ -39,25 +39,11 @@ inline VkInstance createVkInstance(std::vector<const char*>&& requiredWindowExte
     };
 
     std::vector<const char*> requiredExtensions = std::move(requiredWindowExtensions);
-    requiredExtensions.emplace_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
-    requiredExtensions.emplace_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
-    requiredExtensions.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
 #if PROJECT_DEBUG
     requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
     const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
 #endif
-
-    // TODO: delete
-    uint32_t extCount;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
-
-    std::vector<VkExtensionProperties> exts{extCount};
-    vkEnumerateInstanceExtensionProperties(nullptr, &extCount, exts.data());
-
-    for(const auto& ext: exts) {
-        TBD_DEBUG(ext.extensionName);
-    }
 
     VkInstanceCreateInfo vkInstanceCreateInfo {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -105,7 +91,7 @@ struct PhysicalDeviceQueueFamilyID {
     uint32_t GraphicsQueueID = TBD_MAX_T(uint32_t);
     uint32_t PresentQueueID = TBD_MAX_T(uint32_t);
 
-    inline bool isValid() { return GraphicsQueueID != TBD_MAX_T(uint32_t) && PresentQueueID != TBD_MAX_T(uint32_t); }
+    inline bool isValid() const { return GraphicsQueueID != TBD_MAX_T(uint32_t) && PresentQueueID != TBD_MAX_T(uint32_t); }
 };
 
 inline std::pair<VkPhysicalDevice, PhysicalDeviceQueueFamilyID> selectPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
@@ -168,7 +154,7 @@ inline VkDevice createLogicalDevice(VkPhysicalDevice gpu, PhysicalDeviceQueueFam
     std::unordered_set<uint32_t> queueIndices { queues.GraphicsQueueID, queues.PresentQueueID };
 
     const float priority = 1.f;
-    std::vector<VkDeviceQueueCreateInfo> createInfos {};
+    std::vector<VkDeviceQueueCreateInfo> queuesCreateInfo {};
     VkDeviceQueueCreateInfo queueCreateInfo {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .queueCount = 1,
@@ -177,14 +163,31 @@ inline VkDevice createLogicalDevice(VkPhysicalDevice gpu, PhysicalDeviceQueueFam
     for (uint32_t queueID : queueIndices) {
         queueCreateInfo.queueFamilyIndex = queueID;
 
-        createInfos.emplace_back(queueCreateInfo);
+        queuesCreateInfo.emplace_back(queueCreateInfo);
     }
 
     VkPhysicalDeviceFeatures features {};
+    VkPhysicalDeviceVulkan12Features features12 {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .descriptorIndexing = VK_TRUE,
+        .bufferDeviceAddress = VK_TRUE
+    };
+    VkPhysicalDeviceVulkan13Features features13 {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = &features12,
+        .synchronization2 = VK_TRUE,
+        .dynamicRendering = VK_TRUE
+    };
+
+    const char* swapchainExt = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+
     VkDeviceCreateInfo deviceCreateInfo {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .queueCreateInfoCount = static_cast<uint32_t>(createInfos.size()),
-        .pQueueCreateInfos = createInfos.data(),
+        .pNext = &features13,
+        .queueCreateInfoCount = static_cast<uint32_t>(queuesCreateInfo.size()),
+        .pQueueCreateInfos = queuesCreateInfo.data(),
+        .enabledExtensionCount = 1,
+        .ppEnabledExtensionNames = &swapchainExt,
         .pEnabledFeatures = &features
     };
 
@@ -196,6 +199,69 @@ inline VkDevice createLogicalDevice(VkPhysicalDevice gpu, PhysicalDeviceQueueFam
     TBD_LOG("Vulkan device created successfully");
 
     return device;
+}
+
+inline VkSwapchainKHR createSwapchain(VkDevice device, VkPhysicalDevice gpu, VkSurfaceKHR surface, PhysicalDeviceQueueFamilyID queues, VkExtent2D extent, VkSwapchainKHR previousSwapchain = nullptr)
+{
+    VkSurfaceCapabilitiesKHR surfaceCapabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surfaceCapabilities);
+
+    VkSwapchainCreateInfoKHR swapchainCreateInfo {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = surface,
+        .minImageCount = surfaceCapabilities.maxImageCount > 0 && surfaceCapabilities.minImageCount + 1 > surfaceCapabilities.maxImageCount ? surfaceCapabilities.maxImageCount : surfaceCapabilities.minImageCount + 1,
+        .imageFormat = VK_FORMAT_R8G8B8A8_SRGB,
+        .imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+        .imageExtent = extent,
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR,
+        .clipped = VK_TRUE,
+        .oldSwapchain = previousSwapchain
+    };
+
+    if (queues.GraphicsQueueID != queues.PresentQueueID) {
+        swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        swapchainCreateInfo.queueFamilyIndexCount = 2;
+        swapchainCreateInfo.pQueueFamilyIndices = (uint32_t*)&queues; // a bit freaky
+    } else {
+        swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapchainCreateInfo.queueFamilyIndexCount = 0;
+        swapchainCreateInfo.pQueueFamilyIndices = nullptr;
+    }
+
+    VkSwapchainKHR swapchain;
+
+    if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain) != VK_SUCCESS) {
+        ABORT_VK("Vulkan swapchain creation failed");
+    }
+
+    return swapchain;
+}
+
+inline VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageViewType viewType)
+{
+    VkImageViewCreateInfo viewCreateInfo {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image,
+        .viewType = viewType,
+        .format = format,
+        .components = {
+            VK_COMPONENT_SWIZZLE_R,
+            VK_COMPONENT_SWIZZLE_G,
+            VK_COMPONENT_SWIZZLE_B,
+            VK_COMPONENT_SWIZZLE_A },
+        .subresourceRange = { .aspectMask = aspectFlags, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }
+    };
+
+    VkImageView view;
+    if (vkCreateImageView(device, &viewCreateInfo, nullptr, &view) != VK_SUCCESS) {
+        ABORT_VK("Vulkan image view creation failed");
+    }
+
+    return view;
 }
 
 } // namespace TBD
