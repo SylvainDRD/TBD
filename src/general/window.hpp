@@ -1,8 +1,10 @@
 #pragma once
 
 #include <misc/utils.hpp>
+#include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <vulkan/vulkan.hpp>
 
 namespace TBD {
 
@@ -12,6 +14,8 @@ public:
     Window();
 
     ~Window();
+
+    [[nodiscard]] VkSurfaceKHR createVkSurface(VkInstance instance) const;
 
     inline void pollEvents() { glfwPollEvents(); }
 

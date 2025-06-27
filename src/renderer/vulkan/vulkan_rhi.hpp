@@ -23,7 +23,12 @@ private:
     VkDebugUtilsMessengerEXT _debugUtilsMessenger;
 #endif
     VkPhysicalDevice _gpu;
+    
+    VkSurfaceKHR _surface;
     VkDevice _device;
+
+    VkQueue _graphicsQueue;
+    VkQueue _presentQueue;
 };
 
 } // namespace TBD

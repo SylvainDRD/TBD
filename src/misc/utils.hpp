@@ -5,6 +5,9 @@
 
 namespace TBD {
 
+#define TBD_MIN_T(T) std::numeric_limits<T>::min()
+#define TBD_MAX_T(T) std::numeric_limits<T>::max()
+
 #define _TBD_ENDLOG " - " << __FILE__ << ":" << __LINE__ << "\033[0m" << std::endl
 
 #define TBD_LOG(msg) std::cout << "[LOG]: " << msg << _TBD_ENDLOG

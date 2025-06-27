@@ -2,6 +2,7 @@
 #include "GLFW/glfw3.h"
 #include "misc/utils.hpp"
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 namespace TBD {
 
@@ -12,14 +13,12 @@ Window::Window()
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO
     _window = glfwCreateWindow(1600, 800, PROJECT_NAME, nullptr, nullptr);
 
     if (!_window) {
         ABORT("Window creation failed");
     }
-
-    glfwSwapInterval(1);
 
     TBD_LOG("Window creation complete");
 }
@@ -34,16 +33,26 @@ Window::~Window()
 {
     std::vector<const char*> exts{};
 
-    uint32 count;
+    uint32_t count;
     const char **rawExts = glfwGetRequiredInstanceExtensions(&count);
 
-    for(int32 i = 0; i <  count; ++i) {
+    for(int32_t i = 0; i <  count; ++i) {
       exts.emplace_back(rawExts[i]);
 
       TBD_DEBUG("GLFW requiring extension \"" << rawExts[i] << "\"");
     }
 
     return exts;
+}
+
+[[nodiscard]] VkSurfaceKHR Window::createVkSurface(VkInstance instance) const {
+    VkSurfaceKHR surface;
+    
+    if(glfwCreateWindowSurface(instance, _window, nullptr, &surface) != VK_SUCCESS) {
+        ABORT_VK("Failed to create the window surface");
+    }
+
+    return surface;
 }
 
 } // namespace TBD
