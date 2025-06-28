@@ -17,7 +17,8 @@ Engine::~Engine()
 void Engine::run()
 {
     while (!_window.windowClosing()) {
-
+        
+        _rhi->render();
         _window.update();
     }
 }
