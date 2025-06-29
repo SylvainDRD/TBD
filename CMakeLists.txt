@@ -33,14 +33,18 @@ target_compile_features(${binary} PRIVATE cxx_std_20)
 find_package(Vulkan REQUIRED)
 
 target_include_directories(${binary} PRIVATE ${Vulkan_INCLUDE_DIRS})
+target_link_libraries(${binary} ${Vulkan_LIBRARIES})
 
 set(external ${CMAKE_SOURCE_DIR}/external)
 
 add_subdirectory(${external}/glm)
 target_include_directories(${binary} PRIVATE ${external}/glm)
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/glfw)
+add_subdirectory(${external}/glfw)
 target_include_directories(${binary} PRIVATE ${external}/glfw/include)
-
-target_link_libraries(${binary} glfw ${Vulkan_LIBRARIES})
+target_link_libraries(${binary} glfw)
 add_dependencies(${binary} glfw)
+
+add_subdirectory(${external}/VulkanMemoryAllocator)
+target_include_directories(${binary} PRIVATE ${external}/VulkanMemoryAllocator/include)
+target_link_libraries(${binary} GPUOpen::VulkanMemoryAllocator)

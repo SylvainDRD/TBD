@@ -1,29 +1,35 @@
 #include "vulkan_rhi.hpp"
-#include "misc/utils.hpp"
+#include "renderer/vulkan/vulkan_texture.hpp"
 #include "vulkan_utils.hpp"
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <general/window.hpp>
+#include <misc/utils.hpp>
 #include <sys/types.h>
 #include <vulkan/vulkan_core.h>
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 namespace TBD {
 
+VkDevice VulkanRHI::_device;
+VmaAllocator VulkanRHI::_allocator;
+
 VulkanRHI::VulkanRHI(const Window& Window)
 {
-    _instance = createVkInstance(Window.requiredVulkanExtensions());
+    _instance = VKUtils::createVkInstance(Window.requiredVulkanExtensions());
 
 #if PROJECT_DEBUG
-    _debugUtilsMessenger = createDebugMessenger(_instance);
+    _debugUtilsMessenger = VKUtils::createDebugMessenger(_instance);
 #endif
 
     _surface = Window.createVkSurface(_instance);
 
-    auto [gpu, queues] = selectPhysicalDevice(_instance, _surface);
+    auto [gpu, queues] = VKUtils::selectPhysicalDevice(_instance, _surface);
     _gpu = gpu;
 
     _device = createLogicalDevice(_gpu, queues);
+    _allocator = VKUtils::createVMAAllocator(_instance, _gpu, _device);
 
     vkGetDeviceQueue(_device, queues.GraphicsQueueFamilyID, 0, &_graphicsQueue);
     vkGetDeviceQueue(_device, queues.PresentQueueFamilyID, 0, &_presentQueue);
@@ -39,32 +45,39 @@ VulkanRHI::VulkanRHI(const Window& Window)
     vkGetSwapchainImagesKHR(_device, _swapchain, &swapchainImageCount, _swapchainImages.data());
 
     for (uint32_t i = 0; i < swapchainImageCount; ++i) {
-        _swapchainImageViews[i] = createImageView(_device, _swapchainImages[i], VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D);
+        _swapchainImageViews[i] = VKUtils::createImageView(_device, _swapchainImages[i], VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D);
     }
 
     _presentSemaphores.resize(_swapchainImages.size());
     _renderSemaphores.resize(_swapchainImages.size());
 
-    _commandPool = createCommandPool(_device, queues.GraphicsQueueFamilyID);
+    _commandPool = VKUtils::createCommandPool(_device, queues.GraphicsQueueFamilyID);
 
-    allocateCommandBuffers(_device, _commandPool, MaxFramesInFlight, _commandBuffers.data());
+    VKUtils::allocateCommandBuffers(_device, _commandPool, MaxFramesInFlight, _commandBuffers.data());
 
     for (uint32_t i = 0; i < _swapchainImages.size(); ++i) {
-        _presentSemaphores[i] = createSemaphore(_device);
-        _renderSemaphores[i] = createSemaphore(_device);
+        _presentSemaphores[i] = VKUtils::createSemaphore(_device);
+        _renderSemaphores[i] = VKUtils::createSemaphore(_device);
     }
 
     for (uint32_t i = 0; i < MaxFramesInFlight; ++i) {
-        _frameFences[i] = createFence(_device);
+        _frameFences[i] = VKUtils::createFence(_device);
+        _renderTargets[i] = {
+            VK_FORMAT_R8G8B8A8_UNORM,
+            { Window.width(), Window.height(), 1 },
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT
+        };
     }
 }
 
 VulkanRHI::~VulkanRHI()
 {
     vkDeviceWaitIdle(_device);
-    
+
     for (uint32_t i = 0; i < MaxFramesInFlight; ++i) {
         vkDestroyFence(_device, _frameFences[i], nullptr);
+        _renderTargets[i] = {};
     }
 
     for (uint32_t i = 0; i < _swapchainImages.size(); ++i) {
@@ -77,6 +90,8 @@ VulkanRHI::~VulkanRHI()
     for (uint32_t i = 0; i < _swapchainImageViews.size(); ++i) {
         vkDestroyImageView(_device, _swapchainImageViews[i], nullptr);
     }
+
+    vmaDestroyAllocator(_allocator);
 
     vkDestroySwapchainKHR(_device, _swapchain, nullptr);
     vkDestroyDevice(_device, nullptr);
@@ -107,23 +122,47 @@ void VulkanRHI::render()
     }
 
     VkCommandBuffer commandBuffer = _commandBuffers[inFlightFrameId];
-    VkImage currentSwapchainImage = _swapchainImages[_swapchainImageId];
 
-    beginCommandBuffer(commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    transitionImage(commandBuffer, currentSwapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    VKUtils::beginCommandBuffer(commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
     VkClearColorValue clearColor { { 0.f, 0.f, 0.5f * (std::sin(_frameId / 100.f) + 1.f), 1.f } };
 
-    VkImageSubresourceRange imageRange = makeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    VulkanTexture& renderTarget = _renderTargets[inFlightFrameId];
+    renderTarget.transitionImage(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
 
-    vkCmdClearColorImage(commandBuffer, currentSwapchainImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &imageRange);
+    VkImageSubresourceRange imageRange = VKUtils::makeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(commandBuffer, renderTarget.image(), VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &imageRange);
+    renderTarget.transitionImage(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
 
-    transitionImage(commandBuffer, currentSwapchainImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    VkImage currentSwapchainImage = _swapchainImages[_swapchainImageId];
+    VKUtils::transitionImage(commandBuffer, currentSwapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkImageBlit imageBlit {
+        .srcSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1 },
+        .srcOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(renderTarget.width()), static_cast<int32_t>(renderTarget.height()), 1 } },
+        .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+        .dstOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(renderTarget.width()), static_cast<int32_t>(renderTarget.height()), 1 } },
+    };
+
+    vkCmdBlitImage(commandBuffer,
+        renderTarget.image(),
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        currentSwapchainImage,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &imageBlit,
+        VK_FILTER_NEAREST);
+
+    VKUtils::transitionImage(commandBuffer, currentSwapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     vkEndCommandBuffer(commandBuffer);
-    submitCommandBuffer(_graphicsQueue,
-        makeSemaphoreSubmitInfo(_presentSemaphores[semaphoreId], VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR),
-        makeSemaphoreSubmitInfo(_renderSemaphores[semaphoreId], VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT),
+    VKUtils::submitCommandBuffer(_graphicsQueue,
+        VKUtils::makeSemaphoreSubmitInfo(_presentSemaphores[semaphoreId], VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR),
+        VKUtils::makeSemaphoreSubmitInfo(_renderSemaphores[semaphoreId], VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT),
         commandBuffer,
         _frameFences[inFlightFrameId]);
 
