@@ -17,6 +17,7 @@ file(GLOB_RECURSE sources 	${CMAKE_SOURCE_DIR}/src/*.cpp
 							${CMAKE_SOURCE_DIR}/src/general/*.cpp
 							${CMAKE_SOURCE_DIR}/src/utils/*.cpp
 							${CMAKE_SOURCE_DIR}/src/renderer/*.cpp
+							${CMAKE_SOURCE_DIR}/src/renderer/rendering_dag/*.cpp
 							${CMAKE_SOURCE_DIR}/src/renderer/vulkan/*.cpp
 						  )
 

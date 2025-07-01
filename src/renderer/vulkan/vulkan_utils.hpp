@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/vulkan/vulkan_rhi.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <misc/utils.hpp>
@@ -205,16 +206,40 @@ namespace VKUtils {
         return device;
     }
 
-    [[nodiscard]] inline VkSwapchainKHR createSwapchain(VkDevice device, VkPhysicalDevice gpu, VkSurfaceKHR surface, PhysicalDeviceQueueFamilyID queues, VkExtent2D extent, VkSwapchainKHR previousSwapchain = nullptr)
+    [[nodiscard]] inline std::pair<VkSwapchainKHR, VkFormat> createSwapchain(VkDevice device, VkPhysicalDevice gpu, VkSurfaceKHR surface, PhysicalDeviceQueueFamilyID queues, VkExtent2D extent, VkSwapchainKHR previousSwapchain = nullptr)
     {
         VkSurfaceCapabilitiesKHR surfaceCapabilities;
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surfaceCapabilities);
+
+        uint32_t formatsCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &formatsCount, nullptr);
+
+        std::vector<VkSurfaceFormatKHR> surfaceFormats { formatsCount };
+        vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &formatsCount, surfaceFormats.data());
+
+        VkFormat preferredFormats[] = {
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_FORMAT_B8G8R8A8_SRGB
+        };
+
+        uint32_t formatId = 0;
+        for (; formatId < sizeof(preferredFormats); ++formatId) {
+            VkFormat format = preferredFormats[formatId];
+            auto predicate = [format](VkSurfaceFormatKHR surfaceFormat) { return surfaceFormat.format == format; };
+            if (std::find_if(surfaceFormats.cbegin(), surfaceFormats.cend(), predicate) != surfaceFormats.cend()) {
+                break;
+            }
+        }
+
+        if (formatId == sizeof(preferredFormats)) {
+            ABORT_VK("Couldn't find a supported surface format");
+        }
 
         VkSwapchainCreateInfoKHR swapchainCreateInfo {
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = surface,
             .minImageCount = surfaceCapabilities.maxImageCount > 0 && surfaceCapabilities.minImageCount + 1 > surfaceCapabilities.maxImageCount ? surfaceCapabilities.maxImageCount : surfaceCapabilities.minImageCount + 1,
-            .imageFormat = VK_FORMAT_R8G8B8A8_SRGB,
+            .imageFormat = preferredFormats[formatId],
             .imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
             .imageExtent = extent,
             .imageArrayLayers = 1,
@@ -242,30 +267,7 @@ namespace VKUtils {
             ABORT_VK("Vulkan swapchain creation failed");
         }
 
-        return swapchain;
-    }
-
-    [[nodiscard]] inline VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageViewType viewType)
-    {
-        VkImageViewCreateInfo viewCreateInfo {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = image,
-            .viewType = viewType,
-            .format = format,
-            .components = {
-                VK_COMPONENT_SWIZZLE_R,
-                VK_COMPONENT_SWIZZLE_G,
-                VK_COMPONENT_SWIZZLE_B,
-                VK_COMPONENT_SWIZZLE_A },
-            .subresourceRange = { .aspectMask = aspectFlags, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }
-        };
-
-        VkImageView view;
-        if (vkCreateImageView(device, &viewCreateInfo, nullptr, &view) != VK_SUCCESS) {
-            ABORT_VK("Vulkan image view creation failed");
-        }
-
-        return view;
+        return { swapchain, preferredFormats[formatId] };
     }
 
     [[nodiscard]] inline VkCommandPool createCommandPool(VkDevice device, uint32_t queueFamilyIndex)
@@ -407,7 +409,8 @@ namespace VKUtils {
         vkQueueSubmit2(queue, 1u, &submitInfo, fence);
     }
 
-    inline VmaAllocator createVMAAllocator(VkInstance instance, VkPhysicalDevice gpu, VkDevice device) {
+    inline VmaAllocator createVMAAllocator(VkInstance instance, VkPhysicalDevice gpu, VkDevice device)
+    {
         VmaAllocatorCreateInfo allocatorCreateInfo {
             .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
             .physicalDevice = gpu,
@@ -417,12 +420,12 @@ namespace VKUtils {
         };
 
         VmaAllocator allocator;
-        if(vmaCreateAllocator(&allocatorCreateInfo, &allocator) != VK_SUCCESS) {
+        if (vmaCreateAllocator(&allocatorCreateInfo, &allocator) != VK_SUCCESS) {
             ABORT_VK("Failed to create VMA allocator");
         }
 
         return allocator;
-    } 
+    }
 }
 
 } // namespace TBD

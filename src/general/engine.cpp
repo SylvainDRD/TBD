@@ -1,5 +1,6 @@
 #include "engine.hpp"
-#include "renderer/vulkan/vulkan_rhi.hpp"
+#include <renderer/rendering_dag/rendering_dag.hpp>
+#include <renderer/vulkan/vulkan_rhi.hpp>
 
 namespace TBD {
 
@@ -17,8 +18,8 @@ Engine::~Engine()
 void Engine::run()
 {
     while (!_window.windowClosing()) {
-        
-        _rhi->render();
+
+        _rhi->render(RenderingDAG {});
         _window.update();
     }
 }

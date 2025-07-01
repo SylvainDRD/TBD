@@ -1,10 +1,36 @@
 #include "vulkan_texture.hpp"
-#include "renderer/vulkan/vulkan_utils.hpp"
 #include <misc/utils.hpp>
 #include <renderer/vulkan/vulkan_rhi.hpp>
+#include <renderer/vulkan/vulkan_utils.hpp>
 #include <vulkan/vulkan_core.h>
 
 namespace TBD {
+
+VulkanRHI* VulkanTexture::rhi;
+
+VulkanTexture::VulkanTexture(VkImage image, VkFormat format, VkExtent3D extent, VkImageAspectFlags aspect)
+    : _image { image }
+    , _format { format }
+    , _extent { extent }
+    , _allocation { nullptr }
+{
+    VkImageViewCreateInfo viewCreateInfo {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = _image,
+        .viewType = extent.depth == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_3D,
+        .format = format,
+        .subresourceRange = {
+            .aspectMask = aspect,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1 }
+    };
+
+    if (vkCreateImageView(rhi->getVkDevice(), &viewCreateInfo, nullptr, &_view) != VK_SUCCESS) {
+        ABORT_VK("Vulkan image view creation failed");
+    }
+}
 
 VulkanTexture::VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageAspectFlags aspect, bool mipmap)
     : _format { format }
@@ -28,7 +54,7 @@ VulkanTexture::VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFla
         .requiredFlags = VkMemoryPropertyFlags { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT }
     };
 
-    if (vmaCreateImage(VulkanRHI::allocator(), &imageCreateInfo, &allocCreateInfo, &_image, &_allocation, nullptr) != VK_SUCCESS) {
+    if (vmaCreateImage(rhi->getAllocator(), &imageCreateInfo, &allocCreateInfo, &_image, &_allocation, nullptr) != VK_SUCCESS) {
         ABORT_VK("VMA image creation failed");
     }
 
@@ -45,7 +71,7 @@ VulkanTexture::VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFla
             .layerCount = 1 }
     };
 
-    if (vkCreateImageView(VulkanRHI::device(), &viewCreateInfo, nullptr, &_view) != VK_SUCCESS) {
+    if (vkCreateImageView(rhi->getVkDevice(), &viewCreateInfo, nullptr, &_view) != VK_SUCCESS) {
         ABORT_VK("Failed to create Vulkan image view");
     }
 }
@@ -87,11 +113,16 @@ VulkanTexture::~VulkanTexture()
 void VulkanTexture::cleanup()
 {
     if (_view) {
-        vkDestroyImageView(VulkanRHI::device(), _view, nullptr);
+        vkDestroyImageView(rhi->getVkDevice(), _view, nullptr);
+    }
+
+    if (_allocation == nullptr) {
+        // Likely a swapchain image
+        return;
     }
 
     if (_image) {
-        vmaDestroyImage(VulkanRHI::allocator(), _image, _allocation);
+        vmaDestroyImage(rhi->getAllocator(), _image, _allocation);
     }
 }
 
@@ -99,4 +130,34 @@ void VulkanTexture::transitionImage(VkCommandBuffer commandBuffer, VkImageLayout
 {
     VKUtils::transitionImage(commandBuffer, _image, oldLayout, newLayout);
 }
+
+void VulkanTexture::clear(Color color)
+{
+    VkImageSubresourceRange imageRange = VKUtils::makeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(rhi->getCommandBuffer(), _image, VK_IMAGE_LAYOUT_GENERAL, reinterpret_cast<VkClearColorValue*>(&color), 1, &imageRange);
+}
+
+void VulkanTexture::blit(VulkanTexture& dst)
+{
+    VkImageBlit imageBlit {
+        .srcSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1 },
+        .srcOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(width()), static_cast<int32_t>(height()), 1 } },
+        .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+        .dstOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(dst.width()), static_cast<int32_t>(dst.height()), 1 } },
+    };
+
+    vkCmdBlitImage(rhi->getCommandBuffer(),
+        _image,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        dst._image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &imageBlit,
+        VK_FILTER_NEAREST);
+}
+
 }
