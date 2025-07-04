@@ -63,7 +63,7 @@ namespace VKUtils {
         VkInstance instance;
 
         if (vkCreateInstance(&vkInstanceCreateInfo, nullptr, &instance) != VK_SUCCESS) {
-            ABORT_VK("Failed to create Vulkan instance");
+            TBD_ABORT_VK("Failed to create Vulkan instance");
         }
 
         TBD_LOG("Vulkan instance successfully created");
@@ -83,7 +83,7 @@ namespace VKUtils {
 
         VkDebugUtilsMessengerEXT debugMessenger;
         if (createDebugMessenger(instance, &messengerCreateInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
-            ABORT_VK("Failed to create Vulkan debug utils messenger");
+            TBD_ABORT_VK("Failed to create Vulkan debug utils messenger");
         }
 
         TBD_LOG("Vulkan debug messenger successfully created");
@@ -144,7 +144,7 @@ namespace VKUtils {
         }
 
         if (deviceId == TBD_MAX_T(uint32_t)) {
-            ABORT_VK("Couldn't find a suitable physical device");
+            TBD_ABORT_VK("Couldn't find a suitable physical device");
         }
 
         VkPhysicalDevice gpu = availableGpus[deviceId];
@@ -198,7 +198,7 @@ namespace VKUtils {
 
         VkDevice device;
         if (vkCreateDevice(gpu, &deviceCreateInfo, nullptr, &device) != VK_SUCCESS) {
-            ABORT_VK("Vulkan device creation failed");
+            TBD_ABORT_VK("Vulkan device creation failed");
         }
 
         TBD_LOG("Vulkan device created successfully");
@@ -232,7 +232,7 @@ namespace VKUtils {
         }
 
         if (formatId == sizeof(preferredFormats)) {
-            ABORT_VK("Couldn't find a supported surface format");
+            TBD_ABORT_VK("Couldn't find a supported surface format");
         }
 
         VkSwapchainCreateInfoKHR swapchainCreateInfo {
@@ -264,7 +264,7 @@ namespace VKUtils {
         VkSwapchainKHR swapchain;
 
         if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain) != VK_SUCCESS) {
-            ABORT_VK("Vulkan swapchain creation failed");
+            TBD_ABORT_VK("Vulkan swapchain creation failed");
         }
 
         return { swapchain, preferredFormats[formatId] };
@@ -280,7 +280,7 @@ namespace VKUtils {
 
         VkCommandPool commandPool;
         if (vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, &commandPool) != VK_SUCCESS) {
-            ABORT_VK("Vulkan command pool creation failed");
+            TBD_ABORT_VK("Vulkan command pool creation failed");
         }
 
         return commandPool;
@@ -296,7 +296,7 @@ namespace VKUtils {
         };
 
         if (vkAllocateCommandBuffers(device, &cbAllocInfo, buffers) != VK_SUCCESS) {
-            ABORT_VK("Vulkan command buffers allocation failed");
+            TBD_ABORT_VK("Vulkan command buffers allocation failed");
         }
     }
 
@@ -308,7 +308,7 @@ namespace VKUtils {
 
         VkSemaphore semaphore;
         if (vkCreateSemaphore(device, &semCreateInfo, nullptr, &semaphore) != VK_SUCCESS) {
-            ABORT_VK("Failed to create Vulkan semaphore");
+            TBD_ABORT_VK("Failed to create Vulkan semaphore");
         }
 
         return semaphore;
@@ -323,7 +323,7 @@ namespace VKUtils {
 
         VkFence fence;
         if (vkCreateFence(device, &fenceCreateInfo, nullptr, &fence) != VK_SUCCESS) {
-            ABORT_VK("Failed to create Vulkan fence");
+            TBD_ABORT_VK("Failed to create Vulkan fence");
         }
 
         return fence;
@@ -351,30 +351,6 @@ namespace VKUtils {
             .levelCount = VK_REMAINING_MIP_LEVELS,
             .layerCount = VK_REMAINING_ARRAY_LAYERS,
         };
-    }
-
-    inline void transitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout)
-    {
-        // TODO: use more accurate masks
-        VkImageMemoryBarrier2 barrier {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
-            .oldLayout = currentLayout,
-            .newLayout = newLayout,
-            .image = image,
-            .subresourceRange = makeSubresourceRange((newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT)
-        };
-
-        VkDependencyInfo depInfo {
-            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-            .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &barrier
-        };
-
-        vkCmdPipelineBarrier2(commandBuffer, &depInfo);
     }
 
     [[nodiscard]] inline VkSemaphoreSubmitInfo makeSemaphoreSubmitInfo(VkSemaphore semaphore, VkPipelineStageFlags2 stageMask)
@@ -421,7 +397,7 @@ namespace VKUtils {
 
         VmaAllocator allocator;
         if (vmaCreateAllocator(&allocatorCreateInfo, &allocator) != VK_SUCCESS) {
-            ABORT_VK("Failed to create VMA allocator");
+            TBD_ABORT_VK("Failed to create VMA allocator");
         }
 
         return allocator;

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "misc/types.hpp"
 #include <cstdint>
+#include <misc/types.hpp>
 #include <misc/utils.hpp>
-#include <renderer/resource_allocator.hpp>
+#include <renderer/core/rhi_interface.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
@@ -17,9 +17,9 @@ class VulkanTexture {
 public:
     VulkanTexture() = default;
 
-    VulkanTexture(VkImage image, VkFormat format, VkExtent3D extent, VkImageAspectFlags aspect);
+    VulkanTexture(VulkanRHI* rhi, VkImage image, VkFormat format, VkExtent3D extent, VkImageAspectFlags aspect);
 
-    VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageAspectFlags aspect, bool mipmap = true);
+    VulkanTexture(VulkanRHI* rhi, VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageAspectFlags aspect, bool mipmap = true);
 
     VulkanTexture(VulkanTexture&& other);
 
@@ -27,21 +27,19 @@ public:
 
     ~VulkanTexture();
 
-    [[nodiscard]] inline uint32_t width() { return _extent.width; }
+    void release(const IRHI& rhi);
 
-    [[nodiscard]] inline uint32_t height() { return _extent.height; }
+    [[nodiscard]] inline uint32_t getWidth() const { return _extent.width; }
 
-    void transitionImage(VkCommandBuffer commandBuffer, VkImageLayout layout, VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED);
+    [[nodiscard]] inline uint32_t getHeight() const { return _extent.height; }
 
-    void clear(Color color);
+    [[nodiscard]] inline VkImageView getView() const { return _view; }
 
-    void blit(VulkanTexture& dst);
+    void changeLayout(VkCommandBuffer commandBuffer, VkImageLayout layout, VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
-public:
-    static VulkanRHI* rhi;
+    void clear(VkCommandBuffer commandBuffer, Color color);
 
-private:
-    void cleanup();
+    void blit(VkCommandBuffer commandBuffer, VulkanTexture& dst);
 
 private:
     VkImage _image;

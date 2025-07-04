@@ -1,12 +1,11 @@
 #pragma once
 
-#include <concepts>
 #include <misc/utils.hpp>
-#include <vector>
+#include <renderer/core/rhi_interface.hpp>
 
 namespace TBD {
 
-template <std::movable T>
+template <UnmanagedResource T>
 class ResourceAllocator {
     TBD_NO_COPY_MOVE(ResourceAllocator<T>)
 public:
@@ -21,7 +20,7 @@ public:
 
     inline void release(RID rid);
 
-    inline void clear();
+    inline void clear(const IRHI& rhi);
 
 private:
     std::vector<T> _resources; // TODO: specialize the class for SOA and better cache coherency?
@@ -30,7 +29,7 @@ private:
     std::vector<RID> _availableRids;
 };
 
-template <std::movable T>
+template <UnmanagedResource T>
 inline ResourceAllocator<T>::ResourceAllocator()
 {
     const uint32_t PreallocatedSize = 2000;
@@ -40,13 +39,13 @@ inline ResourceAllocator<T>::ResourceAllocator()
     _availableRids.reserve(PreallocatedSize);
 }
 
-template <std::movable T>
+template <UnmanagedResource T>
 inline ResourceAllocator<T>::~ResourceAllocator()
 {
     _resources.clear();
 }
 
-template <std::movable T>
+template <UnmanagedResource T>
 inline T& ResourceAllocator<T>::getResource(RID rid)
 {
     TBD_ASSERT(rid != InvalidRID, "Attempting to fetch a resource with an invalid RID");
@@ -56,7 +55,7 @@ inline T& ResourceAllocator<T>::getResource(RID rid)
     return _resources[_ridToIndex[rid]];
 }
 
-template <std::movable T>
+template <UnmanagedResource T>
 template <class... Args>
 inline RID ResourceAllocator<T>::allocate(Args... args)
 {
@@ -73,14 +72,15 @@ inline RID ResourceAllocator<T>::allocate(Args... args)
     }
 
     _resources.emplace_back(std::forward<Args>(args)...);
+    _indexToRid.emplace_back(newRid);
 
     return newRid;
 }
 
-template <std::movable T>
+template <UnmanagedResource T>
 inline void ResourceAllocator<T>::release(RID rid)
 {
-    // TODO
+    // TODO: test this shit
 
     // Example:
     // Resources: 10 2 4 5 3
@@ -111,8 +111,13 @@ inline void ResourceAllocator<T>::release(RID rid)
     // RID to Resource: X X 1 4 2 0 X X X X X
 }
 
-template <std::movable T>
-inline void ResourceAllocator<T>::clear() {
+template <UnmanagedResource T>
+inline void ResourceAllocator<T>::clear(const IRHI& rhi)
+{
+    for (T& resource : _resources) {
+        resource.release(rhi);
+    }
+
     _resources.clear();
     _indexToRid.clear();
     _ridToIndex.clear();

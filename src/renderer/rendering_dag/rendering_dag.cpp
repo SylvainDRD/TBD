@@ -6,6 +6,11 @@ template <RHI RHI>
 void RenderingDAG::render(RHI* rhi) const
 {
     // T::TextureType test;
+
+}
+
+void RenderingDAG::clear() {
+    
 }
 
 }

@@ -1,10 +1,12 @@
 #pragma once
 
-#include "renderer/rendering_dag/rendering_dag.hpp"
+#include "renderer/vulkan/vulkan_descriptor_set_pool.hpp"
 #include <array>
 #include <cstdint>
 #include <misc/utils.hpp>
-#include <renderer/resource_allocator.hpp>
+#include <renderer/core/resource_allocator.hpp>
+#include <renderer/core/rhi_interface.hpp>
+#include <renderer/rendering_dag/rendering_dag.hpp>
 #include <renderer/vulkan/vulkan_texture.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
@@ -13,10 +15,12 @@
 namespace TBD {
 
 class Window;
+class VulkanDescriptorSetPool;
 
-class VulkanRHI {
+class VulkanRHI : public IRHI {
     TBD_NO_COPY_MOVE(VulkanRHI)
 public:
+    using Type = VulkanRHI;
     using TextureType = VulkanTexture;
     using BufferType = void; // TODO
 
@@ -27,15 +31,15 @@ public:
 
     ~VulkanRHI();
 
-    inline VkDevice getVkDevice() { return _device; }
+    inline VkDevice getVkDevice() const { return _device; }
 
-    inline VmaAllocator getAllocator() { return _allocator; }
+    inline VmaAllocator getAllocator() const { return _allocator; }
 
-    inline VkCommandBuffer getCommandBuffer() { return _commandBuffers[_frameId % MaxFramesInFlight]; }
+    inline VkCommandBuffer getCommandBuffer() const { return _commandBuffers[_frameId % MaxFramesInFlight]; }
 
     inline VulkanTexture& getTexture(RID rid) { return _textures.getResource(rid); }
 
-    void render(const RenderingDAG& rdag);
+    virtual void render(const RenderingDAG& rdag) const override;
 
 private:
     VkInstance _instance;
@@ -51,6 +55,7 @@ private:
 
     // TODO: refactor that
     ResourceAllocator<VulkanTexture> _textures;
+    VulkanDescriptorSetPool* _descriptorSetPool;
 
     VkQueue _graphicsQueue;
     VkQueue _presentQueue;
@@ -68,8 +73,7 @@ private:
     std::vector<VkSemaphore> _presentSemaphores;
     std::vector<VkSemaphore> _renderSemaphores;
 
-    uint32_t _frameId = 1;
-    uint32_t _swapchainImageId;
+    mutable uint32_t _frameId = 1;
 };
 
 } // namespace TBD

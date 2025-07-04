@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <general/window.hpp>
 #include <misc/utils.hpp>
+#include <renderer/vulkan/vulkan_descriptor_set_pool.hpp>
 #include <renderer/vulkan/vulkan_texture.hpp>
 #include <sys/types.h>
 #include <vulkan/vulkan_core.h>
@@ -13,6 +14,7 @@
 namespace TBD {
 
 VulkanRHI::VulkanRHI(const Window& Window)
+    : IRHI {}
 {
     _instance = VKUtils::createVkInstance(Window.requiredVulkanExtensions());
 
@@ -32,7 +34,7 @@ VulkanRHI::VulkanRHI(const Window& Window)
     vkGetDeviceQueue(_device, queues.PresentQueueFamilyID, 0, &_presentQueue);
 
     // The extent provided should match the surface, hopefully glfw
-    auto [swapchain, surfaceFormat] = createSwapchain(_device, _gpu, _surface, queues, { Window.width(), Window.height() });
+    auto [swapchain, surfaceFormat] = createSwapchain(_device, _gpu, _surface, queues, { Window.getWidth(), Window.getHeight() });
     _swapchain = swapchain;
 
     uint32_t swapchainImageCount;
@@ -43,9 +45,8 @@ VulkanRHI::VulkanRHI(const Window& Window)
     _swapchainTextures.resize(swapchainImageCount);
     vkGetSwapchainImagesKHR(_device, _swapchain, &swapchainImageCount, swapchainImages.data());
 
-    VulkanTexture::rhi = this;
     for (int i = 0; i < swapchainImageCount; ++i) {
-        RID rid = _textures.allocate(swapchainImages[i], surfaceFormat, VkExtent3D { Window.width(), Window.height(), 1 }, VK_IMAGE_ASPECT_COLOR_BIT);
+        RID rid = _textures.allocate(this, swapchainImages[i], surfaceFormat, VkExtent3D { Window.getWidth(), Window.getHeight(), 1 }, VK_IMAGE_ASPECT_COLOR_BIT);
         _swapchainTextures[i] = &_textures.getResource(rid);
     }
 
@@ -65,18 +66,24 @@ VulkanRHI::VulkanRHI(const Window& Window)
         _frameFences[i] = VKUtils::createFence(_device);
         _renderTargets[i] = &_textures.getResource(
             _textures.allocate(
+                this,
                 VK_FORMAT_R8G8B8A8_UNORM,
-                VkExtent3D { Window.width(), Window.height(), 1 },
+                VkExtent3D { Window.getWidth(), Window.getHeight(), 1 },
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT));
     }
+
+    _descriptorSetPool = new VulkanDescriptorSetPool(_device, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE }, 1000);
 }
 
 VulkanRHI::~VulkanRHI()
 {
     vkDeviceWaitIdle(_device);
+    
+    _descriptorSetPool->releasePool(_device);
+    delete _descriptorSetPool;
 
-    _textures.clear();
+    _textures.clear(*this);
 
     for (uint32_t i = 0; i < MaxFramesInFlight; ++i) {
         vkDestroyFence(_device, _frameFences[i], nullptr);
@@ -105,7 +112,7 @@ VulkanRHI::~VulkanRHI()
     TBD_LOG("Vulkan objects cleanup completed");
 }
 
-void VulkanRHI::render(const RenderingDAG& rdag)
+void VulkanRHI::render(const RenderingDAG& rdag) const
 {
     // rdag.render<VulkanRHI>(this);
 
@@ -113,12 +120,13 @@ void VulkanRHI::render(const RenderingDAG& rdag)
     const uint32_t inFlightFrameId = _frameId % MaxFramesInFlight;
 
     if (vkWaitForFences(_device, 1, &_frameFences[inFlightFrameId], VK_TRUE, TBD_MAX_T(uint64_t)) != VK_SUCCESS) {
-        ABORT_VK("GPU stall detected");
+        TBD_ABORT_VK("GPU stall detected");
     }
     vkResetFences(_device, 1, &_frameFences[inFlightFrameId]);
 
-    if (vkAcquireNextImageKHR(_device, _swapchain, TBD_MAX_T(uint64_t), _presentSemaphores[semaphoreId], nullptr, &_swapchainImageId) != VK_SUCCESS) {
-        ABORT_VK("Failed to acquire next swapchain image");
+    uint32_t swapchainImageId;
+    if (vkAcquireNextImageKHR(_device, _swapchain, TBD_MAX_T(uint64_t), _presentSemaphores[semaphoreId], nullptr, &swapchainImageId) != VK_SUCCESS) {
+        TBD_ABORT_VK("Failed to acquire next swapchain image");
     }
 
     VkCommandBuffer commandBuffer = getCommandBuffer();
@@ -126,16 +134,35 @@ void VulkanRHI::render(const RenderingDAG& rdag)
     VKUtils::beginCommandBuffer(commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
     VulkanTexture* renderTarget = _renderTargets[inFlightFrameId];
-    renderTarget->transitionImage(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
+    renderTarget->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
 
-    renderTarget->clear({ 0.f, 0.f, 0.5f * (std::sin(_frameId / 100.f) + 1.f), 1.f });
-    renderTarget->transitionImage(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+    renderTarget->clear(commandBuffer, { 0.f, 0.f, 0.5f * (std::sin(_frameId / 100.f) + 1.f), 1.f });
 
-    _swapchainTextures[_swapchainImageId]->transitionImage(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    /// Preparing the compute shader call
+    auto [descriptorSetId, descriptorSet] = _descriptorSetPool->getDescriptorSet(_device);
 
-    renderTarget->blit(*_swapchainTextures[_swapchainImageId]);
+    VkDescriptorImageInfo imgInfo {
+        .imageView = renderTarget->getView(),
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+    };
 
-    _swapchainTextures[_swapchainImageId]->transitionImage(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkWriteDescriptorSet descWrite {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = descriptorSet,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        .pImageInfo = &imgInfo
+    };
+
+    vkUpdateDescriptorSets(_device, 1, &descWrite, 0, nullptr);
+
+    renderTarget->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+    _swapchainTextures[swapchainImageId]->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    renderTarget->blit(commandBuffer, *_swapchainTextures[swapchainImageId]);
+
+    _swapchainTextures[swapchainImageId]->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     vkEndCommandBuffer(commandBuffer);
     VKUtils::submitCommandBuffer(_graphicsQueue,
@@ -150,7 +177,7 @@ void VulkanRHI::render(const RenderingDAG& rdag)
         .pWaitSemaphores = &_renderSemaphores[semaphoreId],
         .swapchainCount = 1,
         .pSwapchains = &_swapchain,
-        .pImageIndices = &_swapchainImageId,
+        .pImageIndices = &swapchainImageId,
     };
     vkQueuePresentKHR(_presentQueue, &presentInfo);
 

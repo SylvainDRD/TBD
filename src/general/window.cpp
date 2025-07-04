@@ -11,7 +11,7 @@ Window::Window()
     , _height { 800 }
 {
     if (!glfwInit()) {
-        ABORT("GLFW init failed");
+        TBD_ABORT("GLFW init failed");
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -19,7 +19,7 @@ Window::Window()
     _window = glfwCreateWindow(_width, _height, PROJECT_NAME, nullptr, nullptr);
 
     if (!_window) {
-        ABORT("Window creation failed");
+        TBD_ABORT("Window creation failed");
     }
 
     TBD_LOG("Window creation completed");
@@ -52,7 +52,7 @@ Window::~Window()
     VkSurfaceKHR surface;
 
     if (glfwCreateWindowSurface(instance, _window, nullptr, &surface) != VK_SUCCESS) {
-        ABORT_VK("Failed to create the window surface");
+        TBD_ABORT_VK("Failed to create the window surface");
     }
 
     return surface;

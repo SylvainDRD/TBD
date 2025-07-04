@@ -6,9 +6,7 @@
 
 namespace TBD {
 
-VulkanRHI* VulkanTexture::rhi;
-
-VulkanTexture::VulkanTexture(VkImage image, VkFormat format, VkExtent3D extent, VkImageAspectFlags aspect)
+VulkanTexture::VulkanTexture(VulkanRHI* rhi, VkImage image, VkFormat format, VkExtent3D extent, VkImageAspectFlags aspect)
     : _image { image }
     , _format { format }
     , _extent { extent }
@@ -28,11 +26,11 @@ VulkanTexture::VulkanTexture(VkImage image, VkFormat format, VkExtent3D extent, 
     };
 
     if (vkCreateImageView(rhi->getVkDevice(), &viewCreateInfo, nullptr, &_view) != VK_SUCCESS) {
-        ABORT_VK("Vulkan image view creation failed");
+        TBD_ABORT_VK("Vulkan image view creation failed");
     }
 }
 
-VulkanTexture::VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageAspectFlags aspect, bool mipmap)
+VulkanTexture::VulkanTexture(VulkanRHI* rhi, VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageAspectFlags aspect, bool mipmap)
     : _format { format }
     , _extent { extent }
 {
@@ -55,7 +53,7 @@ VulkanTexture::VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFla
     };
 
     if (vmaCreateImage(rhi->getAllocator(), &imageCreateInfo, &allocCreateInfo, &_image, &_allocation, nullptr) != VK_SUCCESS) {
-        ABORT_VK("VMA image creation failed");
+        TBD_ABORT_VK("VMA image creation failed");
     }
 
     VkImageViewCreateInfo viewCreateInfo {
@@ -72,7 +70,7 @@ VulkanTexture::VulkanTexture(VkFormat format, VkExtent3D extent, VkImageUsageFla
     };
 
     if (vkCreateImageView(rhi->getVkDevice(), &viewCreateInfo, nullptr, &_view) != VK_SUCCESS) {
-        ABORT_VK("Failed to create Vulkan image view");
+        TBD_ABORT_VK("Failed to create Vulkan image view");
     }
 }
 
@@ -91,7 +89,9 @@ VulkanTexture::VulkanTexture(VulkanTexture&& other)
 VulkanTexture& VulkanTexture::operator=(VulkanTexture&& other)
 {
     // Overwritten texture needs to be cleaned up
-    cleanup();
+    TBD_ASSERT(_view == nullptr, "Vulkan texture view was not cleaned up before move assignment");
+    TBD_ASSERT(_allocation == nullptr, "Vulkan texture allocation was not cleaned up before move assignment");
+    TBD_ASSERT(_image == nullptr, "Vulkan texture image was not cleaned up before move assignment");
 
     _image = other._image;
     other._image = nullptr;
@@ -107,13 +107,17 @@ VulkanTexture& VulkanTexture::operator=(VulkanTexture&& other)
 
 VulkanTexture::~VulkanTexture()
 {
-    cleanup();
+    TBD_ASSERT(_view == nullptr, "Vulkan texture view was not cleaned up");
+    TBD_ASSERT(_allocation == nullptr, "Vulkan texture allocation was not cleaned up");
+    TBD_ASSERT(_image == nullptr, "Vulkan texture image was not cleaned up");
 }
 
-void VulkanTexture::cleanup()
+void VulkanTexture::release(const IRHI& rhi)
 {
+    const VulkanRHI& vrhi = static_cast<const VulkanRHI&>(rhi);
     if (_view) {
-        vkDestroyImageView(rhi->getVkDevice(), _view, nullptr);
+        vkDestroyImageView(vrhi.getVkDevice(), _view, nullptr);
+        _view = nullptr;
     }
 
     if (_allocation == nullptr) {
@@ -122,22 +126,44 @@ void VulkanTexture::cleanup()
     }
 
     if (_image) {
-        vmaDestroyImage(rhi->getAllocator(), _image, _allocation);
+        vmaDestroyImage(vrhi.getAllocator(), _image, _allocation);
+        _image = nullptr;
+        _allocation = nullptr;
     }
 }
 
-void VulkanTexture::transitionImage(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkImageLayout oldLayout)
+void VulkanTexture::changeLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkImageLayout oldLayout)
 {
-    VKUtils::transitionImage(commandBuffer, _image, oldLayout, newLayout);
+    // VkCommandBuffer commandBuffer = rhi->getCommandBuffer();
+
+    VkImageMemoryBarrier2 barrier {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        .oldLayout = oldLayout,
+        .newLayout = newLayout,
+        .image = _image,
+        .subresourceRange = VKUtils::makeSubresourceRange((newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT)
+    };
+
+    VkDependencyInfo depInfo {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier
+    };
+
+    vkCmdPipelineBarrier2(commandBuffer, &depInfo);
 }
 
-void VulkanTexture::clear(Color color)
+void VulkanTexture::clear(VkCommandBuffer commandBuffer, Color color)
 {
     VkImageSubresourceRange imageRange = VKUtils::makeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(rhi->getCommandBuffer(), _image, VK_IMAGE_LAYOUT_GENERAL, reinterpret_cast<VkClearColorValue*>(&color), 1, &imageRange);
+    vkCmdClearColorImage(/*rhi->getCommandBuffer()*/ commandBuffer, _image, VK_IMAGE_LAYOUT_GENERAL, reinterpret_cast<VkClearColorValue*>(&color), 1, &imageRange);
 }
 
-void VulkanTexture::blit(VulkanTexture& dst)
+void VulkanTexture::blit(VkCommandBuffer commandBuffer, VulkanTexture& dst)
 {
     VkImageBlit imageBlit {
         .srcSubresource = {
@@ -145,12 +171,12 @@ void VulkanTexture::blit(VulkanTexture& dst)
             .mipLevel = 0,
             .baseArrayLayer = 0,
             .layerCount = 1 },
-        .srcOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(width()), static_cast<int32_t>(height()), 1 } },
+        .srcOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(getWidth()), static_cast<int32_t>(getHeight()), 1 } },
         .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
-        .dstOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(dst.width()), static_cast<int32_t>(dst.height()), 1 } },
+        .dstOffsets = { { 0, 0, 0 }, { static_cast<int32_t>(dst.getWidth()), static_cast<int32_t>(dst.getHeight()), 1 } },
     };
 
-    vkCmdBlitImage(rhi->getCommandBuffer(),
+    vkCmdBlitImage(/*rhi->getCommandBuffer()*/ commandBuffer,
         _image,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         dst._image,
