@@ -139,11 +139,8 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
     VKUtils::beginCommandBuffer(commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
     VulkanTexture* renderTarget = _renderTargets[frameInFlightId];
-    renderTarget->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
+    renderTarget->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
 
-    renderTarget->clear(commandBuffer, { 0.f, 0.f, 0.5f * (std::sin(_frameId / 100.f) + 1.f), 1.f });
-
-    /// Preparing the compute shader call
     VkDescriptorSet descriptorSet = _descriptorSetPool->getDescriptorSet(_device, frameInFlightId);
 
     // update DS, bind pipeline, bind DS, dispatch
@@ -156,11 +153,12 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
     _descriptorSetPool->bind(commandBuffer, descriptorSet, VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline->getLayout());
     _computePipeline->dispatch(commandBuffer, { std::ceil(renderTarget->getWidth() / 8.f), std::ceil(renderTarget->getHeight() / 8.f), 1 });
 
-    renderTarget->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-    _swapchainTextures[swapchainImageId]->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    renderTarget->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+    
+    _swapchainTextures[swapchainImageId]->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     renderTarget->blit(commandBuffer, *_swapchainTextures[swapchainImageId]);
 
-    _swapchainTextures[swapchainImageId]->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    _swapchainTextures[swapchainImageId]->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     vkEndCommandBuffer(commandBuffer);
     VKUtils::submitCommandBuffer(_graphicsQueue,

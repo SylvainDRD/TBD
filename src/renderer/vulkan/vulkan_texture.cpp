@@ -133,7 +133,7 @@ void VulkanTexture::release(const IRHI& rhi)
     }
 }
 
-void VulkanTexture::changeLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkImageLayout oldLayout)
+void VulkanTexture::insertBarrier(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkImageLayout oldLayout)
 {
     // VkCommandBuffer commandBuffer = rhi->getCommandBuffer();
 

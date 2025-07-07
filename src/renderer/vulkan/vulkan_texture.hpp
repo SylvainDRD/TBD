@@ -35,7 +35,7 @@ public:
 
     [[nodiscard]] inline VkImageView getView() const { return _view; }
 
-    void changeLayout(VkCommandBuffer commandBuffer, VkImageLayout layout, VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED);
+    void insertBarrier(VkCommandBuffer commandBuffer, VkImageLayout layout, VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
     void clear(VkCommandBuffer commandBuffer, Color color);
 
