@@ -374,7 +374,7 @@ namespace VKUtils {
 
         VkSubmitInfo2 submitInfo {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-            .waitSemaphoreInfoCount = waitSemaphore.semaphore ? 1u : 0,
+            .waitSemaphoreInfoCount = waitSemaphore.semaphore ? 1u : 0u,
             .pWaitSemaphoreInfos = &waitSemaphore,
             .commandBufferInfoCount = commandBuffer ? 1u : 0u,
             .pCommandBufferInfos = &cbSubmitInfo,
@@ -382,7 +382,7 @@ namespace VKUtils {
             .pSignalSemaphoreInfos = &signalSemaphore
         };
 
-        vkQueueSubmit2(queue, 1u, &submitInfo, fence);
+        vkQueueSubmit2(queue, 1, &submitInfo, fence);
     }
 
     inline VmaAllocator createVMAAllocator(VkInstance instance, VkPhysicalDevice gpu, VkDevice device)

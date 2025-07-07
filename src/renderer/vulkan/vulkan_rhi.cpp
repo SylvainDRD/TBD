@@ -51,19 +51,17 @@ VulkanRHI::VulkanRHI(const Window& Window)
         _swapchainTextures[i] = &_textures.getResource(rid);
     }
 
-    _presentSemaphores.resize(swapchainImages.size());
-    _renderSemaphores.resize(swapchainImages.size());
-
     _commandPool = VKUtils::createCommandPool(_device, queues.GraphicsQueueFamilyID);
 
     VKUtils::allocateCommandBuffers(_device, _commandPool, MaxFramesInFlight, _commandBuffers.data());
 
-    for (uint32_t i = 0; i < swapchainImages.size(); ++i) {
-        _presentSemaphores[i] = VKUtils::createSemaphore(_device);
+    _renderSemaphores.resize(swapchainImageCount);
+    for (uint32_t i = 0; i < _renderSemaphores.size(); ++i) {
         _renderSemaphores[i] = VKUtils::createSemaphore(_device);
     }
 
     for (uint32_t i = 0; i < MaxFramesInFlight; ++i) {
+        _presentSemaphores[i] = VKUtils::createSemaphore(_device);
         _frameFences[i] = VKUtils::createFence(_device);
         _renderTargets[i] = &_textures.getResource(
             _textures.allocate(
@@ -95,10 +93,10 @@ VulkanRHI::~VulkanRHI()
 
     for (uint32_t i = 0; i < MaxFramesInFlight; ++i) {
         vkDestroyFence(_device, _frameFences[i], nullptr);
+        vkDestroySemaphore(_device, _presentSemaphores[i], nullptr);
     }
 
-    for (uint32_t i = 0; i < _presentSemaphores.size(); ++i) {
-        vkDestroySemaphore(_device, _presentSemaphores[i], nullptr);
+    for (uint32_t i = 0; i < _renderSemaphores.size(); ++i) {
         vkDestroySemaphore(_device, _renderSemaphores[i], nullptr);
     }
 
@@ -124,16 +122,15 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
 {
     // rdag.render<VulkanRHI>(this);
 
-    const uint32_t semaphoreId = _frameId % _presentSemaphores.size();
-    const uint32_t inFlightFrameId = _frameId % MaxFramesInFlight;
+    const uint32_t frameInFlightId = _frameId % MaxFramesInFlight;
 
-    if (vkWaitForFences(_device, 1, &_frameFences[inFlightFrameId], VK_TRUE, TBD_MAX_T(uint64_t)) != VK_SUCCESS) {
+    if (vkWaitForFences(_device, 1, &_frameFences[frameInFlightId], VK_TRUE, TBD_MAX_T(uint64_t)) != VK_SUCCESS) {
         TBD_ABORT_VK("GPU stall detected");
     }
-    vkResetFences(_device, 1, &_frameFences[inFlightFrameId]);
+    vkResetFences(_device, 1, &_frameFences[frameInFlightId]);
 
     uint32_t swapchainImageId;
-    if (vkAcquireNextImageKHR(_device, _swapchain, TBD_MAX_T(uint64_t), _presentSemaphores[semaphoreId], nullptr, &swapchainImageId) != VK_SUCCESS) {
+    if (vkAcquireNextImageKHR(_device, _swapchain, TBD_MAX_T(uint64_t), _presentSemaphores[frameInFlightId], nullptr, &swapchainImageId) != VK_SUCCESS) {
         TBD_ABORT_VK("Failed to acquire next swapchain image");
     }
 
@@ -141,13 +138,13 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
 
     VKUtils::beginCommandBuffer(commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
-    VulkanTexture* renderTarget = _renderTargets[inFlightFrameId];
+    VulkanTexture* renderTarget = _renderTargets[frameInFlightId];
     renderTarget->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
 
     renderTarget->clear(commandBuffer, { 0.f, 0.f, 0.5f * (std::sin(_frameId / 100.f) + 1.f), 1.f });
 
     /// Preparing the compute shader call
-    VkDescriptorSet descriptorSet = _descriptorSetPool->getDescriptorSet(_device, inFlightFrameId);
+    VkDescriptorSet descriptorSet = _descriptorSetPool->getDescriptorSet(_device, frameInFlightId);
 
     // update DS, bind pipeline, bind DS, dispatch
     VkDescriptorImageInfo imageInfo {
@@ -167,15 +164,15 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
 
     vkEndCommandBuffer(commandBuffer);
     VKUtils::submitCommandBuffer(_graphicsQueue,
-        VKUtils::makeSemaphoreSubmitInfo(_presentSemaphores[semaphoreId], VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR),
-        VKUtils::makeSemaphoreSubmitInfo(_renderSemaphores[semaphoreId], VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT),
+        VKUtils::makeSemaphoreSubmitInfo(_presentSemaphores[frameInFlightId], VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR),
+        VKUtils::makeSemaphoreSubmitInfo(_renderSemaphores[swapchainImageId], VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT),
         commandBuffer,
-        _frameFences[inFlightFrameId]);
+        _frameFences[frameInFlightId]);
 
     VkPresentInfoKHR presentInfo {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &_renderSemaphores[semaphoreId],
+        .pWaitSemaphores = &_renderSemaphores[swapchainImageId],
         .swapchainCount = 1,
         .pSwapchains = &_swapchain,
         .pImageIndices = &swapchainImageId,

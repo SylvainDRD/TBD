@@ -122,6 +122,7 @@ void VulkanTexture::release(const IRHI& rhi)
 
     if (_allocation == nullptr) {
         // Likely a swapchain image
+        _image = nullptr;
         return;
     }
 

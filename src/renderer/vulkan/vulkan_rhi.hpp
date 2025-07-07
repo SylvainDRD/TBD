@@ -67,7 +67,7 @@ private:
     std::array<VkFence, MaxFramesInFlight> _frameFences;
     std::array<VulkanTexture*, MaxFramesInFlight> _renderTargets;
 
-    std::vector<VkSemaphore> _presentSemaphores;
+    std::array<VkSemaphore, MaxFramesInFlight> _presentSemaphores;
     std::vector<VkSemaphore> _renderSemaphores;
 
     // TODO: refactor that
