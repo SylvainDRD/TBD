@@ -22,22 +22,16 @@ VulkanPipeline::VulkanPipeline(VkDevice device, VkDescriptorSetLayout layout, co
 
     if (!data.computeShaderPath.empty()) {
         VkShaderModule module;
-        // std::string path = PROJECT_DIR "/src/renderer/shaders/.cache/gradient.comp.spv";
         if (!loadShader(device, data.computeShaderPath, module)) {
             release(device);
         }
         _shaderModules.emplace_back(module);
 
-        std::filesystem::path shaderNamePath = data.computeShaderPath;
-        while (shaderNamePath.has_stem()) {
-            shaderNamePath = shaderNamePath.stem();
-        }
-
         VkPipelineShaderStageCreateInfo stageCreateInfo {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_COMPUTE_BIT,
             .module = _shaderModules[0],
-            .pName = shaderNamePath.c_str()
+            .pName = "main"
         };
 
         VkComputePipelineCreateInfo pipelineCreateInfo {
@@ -50,6 +44,14 @@ VulkanPipeline::VulkanPipeline(VkDevice device, VkDescriptorSetLayout layout, co
             TBD_ABORT_VK("Failed to create Vulkan compute pipeline");
         }
     }
+}
+
+void VulkanPipeline::bind(VkCommandBuffer commandBuffer, VkPipelineBindPoint bindPoint) {
+    vkCmdBindPipeline(commandBuffer, bindPoint, _pipeline);
+}
+
+void VulkanPipeline::dispatch(VkCommandBuffer commandBuffer, Vec3i kernelSize) {
+    vkCmdDispatch(commandBuffer, kernelSize.x, kernelSize.y, kernelSize.z);
 }
 
 void VulkanPipeline::release(VkDevice device)

@@ -5,6 +5,7 @@
 #include <general/window.hpp>
 #include <misc/utils.hpp>
 #include <renderer/vulkan/vulkan_descriptor_set_pool.hpp>
+#include <renderer/vulkan/vulkan_pipeline.hpp>
 #include <renderer/vulkan/vulkan_texture.hpp>
 #include <sys/types.h>
 #include <vulkan/vulkan_core.h>
@@ -67,21 +68,28 @@ VulkanRHI::VulkanRHI(const Window& Window)
         _renderTargets[i] = &_textures.getResource(
             _textures.allocate(
                 this,
-                VK_FORMAT_R8G8B8A8_UNORM,
+                VK_FORMAT_R16G16B16A16_SFLOAT,
                 VkExtent3D { Window.getWidth(), Window.getHeight(), 1 },
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT));
     }
 
-    _descriptorSetPool = new VulkanDescriptorSetPool(_device, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE }, 1000);
+    _descriptorSetPool = new VulkanDescriptorSetPool<MaxFramesInFlight>(_device, VK_SHADER_STAGE_COMPUTE_BIT, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE }, 1000);
+    _computePipeline = new VulkanPipeline(
+        _device,
+        _descriptorSetPool->getLayout(),
+        { .computeShaderPath = PROJECT_DIR "src/renderer/shaders/.cache/gradient.comp.spv" });
 }
 
 VulkanRHI::~VulkanRHI()
 {
     vkDeviceWaitIdle(_device);
-    
+
     _descriptorSetPool->releasePool(_device);
     delete _descriptorSetPool;
+
+    _computePipeline->release(_device);
+    delete _computePipeline;
 
     _textures.clear(*this);
 
@@ -139,24 +147,17 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
     renderTarget->clear(commandBuffer, { 0.f, 0.f, 0.5f * (std::sin(_frameId / 100.f) + 1.f), 1.f });
 
     /// Preparing the compute shader call
-    auto [descriptorSetId, descriptorSet] = _descriptorSetPool->getDescriptorSet(_device);
+    VkDescriptorSet descriptorSet = _descriptorSetPool->getDescriptorSet(_device, inFlightFrameId);
 
-    VkDescriptorImageInfo imgInfo {
+    // update DS, bind pipeline, bind DS, dispatch
+    VkDescriptorImageInfo imageInfo {
         .imageView = renderTarget->getView(),
         .imageLayout = VK_IMAGE_LAYOUT_GENERAL
     };
-
-    VkWriteDescriptorSet descWrite {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = descriptorSet,
-        .dstBinding = 0,
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .pImageInfo = &imgInfo
-    };
-
-    vkUpdateDescriptorSets(_device, 1, &descWrite, 0, nullptr);
+    _descriptorSetPool->updateDescriptorSet(_device, commandBuffer, descriptorSet, _computePipeline->getLayout(), imageInfo);
+    _computePipeline->bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    _descriptorSetPool->bind(commandBuffer, descriptorSet, VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline->getLayout());
+    _computePipeline->dispatch(commandBuffer, { std::ceil(renderTarget->getWidth() / 8.f), std::ceil(renderTarget->getHeight() / 8.f), 1 });
 
     renderTarget->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
     _swapchainTextures[swapchainImageId]->changeLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);

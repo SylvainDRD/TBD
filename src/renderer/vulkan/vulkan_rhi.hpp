@@ -1,6 +1,5 @@
 #pragma once
 
-#include "renderer/vulkan/vulkan_descriptor_set_pool.hpp"
 #include <array>
 #include <cstdint>
 #include <misc/utils.hpp>
@@ -15,7 +14,9 @@
 namespace TBD {
 
 class Window;
+template<uint32_t>
 class VulkanDescriptorSetPool;
+class VulkanPipeline;
 
 class VulkanRHI : public IRHI {
     TBD_NO_COPY_MOVE(VulkanRHI)
@@ -53,10 +54,6 @@ private:
     VkDevice _device;
     VmaAllocator _allocator;
 
-    // TODO: refactor that
-    ResourceAllocator<VulkanTexture> _textures;
-    VulkanDescriptorSetPool* _descriptorSetPool;
-
     VkQueue _graphicsQueue;
     VkQueue _presentQueue;
 
@@ -72,6 +69,11 @@ private:
 
     std::vector<VkSemaphore> _presentSemaphores;
     std::vector<VkSemaphore> _renderSemaphores;
+
+    // TODO: refactor that
+    ResourceAllocator<VulkanTexture> _textures;
+    VulkanDescriptorSetPool<MaxFramesInFlight>* _descriptorSetPool;
+    VulkanPipeline* _computePipeline;
 
     mutable uint32_t _frameId = 1;
 };

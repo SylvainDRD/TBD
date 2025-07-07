@@ -1,5 +1,6 @@
 #pragma once
 
+#include "misc/types.hpp"
 #include "vulkan/vulkan_core.h"
 #include <filesystem>
 #include <misc/utils.hpp>
@@ -15,7 +16,21 @@ class VulkanPipeline {
 public:
     VulkanPipeline(VkDevice device, VkDescriptorSetLayout layout, const PipelineShaderData& data);
 
-    [[nodiscard]] bool isValid() const { return _pipeline != nullptr; }
+    void bind(VkCommandBuffer commandBuffer, VkPipelineBindPoint bindPoint);
+
+    void dispatch(VkCommandBuffer commandBuffer, Vec3i kernelSize);
+
+    [[nodiscard]]
+    VkPipelineLayout getLayout() const
+    {
+        return _pipelineLayout;
+    }
+
+    [[nodiscard]]
+    bool isValid() const
+    {
+        return _pipeline != nullptr;
+    }
 
     void release(VkDevice device);
 
