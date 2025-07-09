@@ -21,5 +21,8 @@ using Color = Vec4;
 using Vec2i = glm::ivec2;
 using Vec3i = glm::ivec3;
 using Vec4i = glm::ivec4;
+using Vec2u = glm::uvec2;
+using Vec3u = glm::uvec3;
+using Vec4u = glm::uvec4;
 
 } // namespace TBD

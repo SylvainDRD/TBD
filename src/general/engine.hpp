@@ -1,10 +1,12 @@
 #pragma once
 
-#include "renderer/vulkan/vulkan_rhi.hpp"
 #include <general/window.hpp>
+#include <misc/types.hpp>
 #include <misc/utils.hpp>
 
 namespace TBD {
+
+class VulkanRHI;
 
 class Engine {
     TBD_NO_COPY_MOVE(Engine)
@@ -18,7 +20,7 @@ public:
 private:
     Window _window;
 
-    VulkanRHI *_rhi;
+    Uptr<VulkanRHI> _rhi;
 };
 
 } // namespace TBD

@@ -35,7 +35,11 @@ public:
 
     [[nodiscard]] inline VkImageView getView() const { return _view; }
 
-    void insertBarrier(VkCommandBuffer commandBuffer, VkImageLayout layout, VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED);
+    [[nodiscard]] inline VkFormat getFormat() const { return _format; }
+
+    [[nodiscard]] VkRenderingAttachmentInfo getAttachmentInfo() const;
+
+    void insertBarrier(VkCommandBuffer commandBuffer, VkImageLayout layout);
 
     void clear(VkCommandBuffer commandBuffer, Color color);
 
@@ -46,7 +50,8 @@ private:
     VkImageView _view;
     VkFormat _format;
     VkExtent3D _extent;
-    VmaAllocation _allocation;
+    VkImageLayout _layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocation _allocation = nullptr;
 };
 
 }

@@ -14,7 +14,7 @@
 namespace TBD {
 
 class Window;
-template<uint32_t>
+template <uint32_t>
 class VulkanDescriptorSetPool;
 class VulkanPipeline;
 
@@ -72,8 +72,9 @@ private:
 
     // TODO: refactor that
     ResourceAllocator<VulkanTexture> _textures;
-    VulkanDescriptorSetPool<MaxFramesInFlight>* _descriptorSetPool;
-    VulkanPipeline* _computePipeline;
+    Uptr<VulkanDescriptorSetPool<MaxFramesInFlight>> _descriptorSetPoolCompute = nullptr;
+    Uptr<VulkanPipeline> _computePipeline = nullptr;
+    Uptr<VulkanPipeline> _graphicsPipeline = nullptr;
 
     mutable uint32_t _frameId = 1;
 };

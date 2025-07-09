@@ -1,6 +1,5 @@
 #pragma once
 
-#include "renderer/vulkan/vulkan_rhi.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>

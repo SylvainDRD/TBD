@@ -9,6 +9,11 @@ namespace TBD {
 
 struct PipelineShaderData {
     std::filesystem::path computeShaderPath;
+    std::filesystem::path vertexShaderPath;
+    std::filesystem::path fragmentShaderPath;
+    std::vector<VkFormat> colorAttachmentFormats;
+    VkFormat depthAttachmentFormat;
+    VkFormat stencilAttachmentFormat;
 };
 
 class VulkanPipeline {
@@ -16,9 +21,9 @@ class VulkanPipeline {
 public:
     VulkanPipeline(VkDevice device, VkDescriptorSetLayout layout, const PipelineShaderData& data);
 
-    void bind(VkCommandBuffer commandBuffer, VkPipelineBindPoint bindPoint);
-
     void dispatch(VkCommandBuffer commandBuffer, Vec3i kernelSize);
+
+    void draw(VkCommandBuffer commandBuffer, VkExtent2D extent, const std::vector<VkRenderingAttachmentInfo>& colorAttachments, VkRenderingAttachmentInfo depthAttachment = {}, VkRenderingAttachmentInfo stencilAttachment = {});
 
     [[nodiscard]]
     VkPipelineLayout getLayout() const

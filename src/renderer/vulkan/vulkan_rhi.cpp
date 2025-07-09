@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdint>
 #include <general/window.hpp>
+#include <initializer_list>
+#include <memory>
 #include <misc/utils.hpp>
 #include <renderer/vulkan/vulkan_descriptor_set_pool.hpp>
 #include <renderer/vulkan/vulkan_pipeline.hpp>
@@ -72,22 +74,31 @@ VulkanRHI::VulkanRHI(const Window& Window)
                 VK_IMAGE_ASPECT_COLOR_BIT));
     }
 
-    _descriptorSetPool = new VulkanDescriptorSetPool<MaxFramesInFlight>(_device, VK_SHADER_STAGE_COMPUTE_BIT, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE }, 1000);
-    _computePipeline = new VulkanPipeline(
+    _descriptorSetPoolCompute = std::make_unique<VulkanDescriptorSetPool<MaxFramesInFlight>>(_device,
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        std::initializer_list<VkDescriptorType> { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE },
+        1000);
+
+    _computePipeline = std::make_unique<VulkanPipeline>(
         _device,
-        _descriptorSetPool->getLayout(),
-        { .computeShaderPath = PROJECT_DIR "src/renderer/shaders/.cache/gradient.comp.spv" });
+        _descriptorSetPoolCompute->getLayout(),
+        PipelineShaderData { .computeShaderPath = PROJECT_DIR "src/renderer/shaders/.cache/gradient.comp.spv" });
+
+    _graphicsPipeline = std::make_unique<VulkanPipeline>(_device,
+        nullptr,
+        PipelineShaderData {
+            .vertexShaderPath = PROJECT_DIR "src/renderer/shaders/.cache/triangle.vert.spv",
+            .fragmentShaderPath = PROJECT_DIR "src/renderer/shaders/.cache/triangle.frag.spv",
+            .colorAttachmentFormats { _renderTargets[0]->getFormat() } });
 }
 
 VulkanRHI::~VulkanRHI()
 {
     vkDeviceWaitIdle(_device);
 
-    _descriptorSetPool->releasePool(_device);
-    delete _descriptorSetPool;
-
+    _descriptorSetPoolCompute->releasePool(_device);
     _computePipeline->release(_device);
-    delete _computePipeline;
+    _graphicsPipeline->release(_device);
 
     _textures.clear(*this);
 
@@ -141,24 +152,30 @@ void VulkanRHI::render(const RenderingDAG& rdag) const
     VulkanTexture* renderTarget = _renderTargets[frameInFlightId];
     renderTarget->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_GENERAL);
 
-    VkDescriptorSet descriptorSet = _descriptorSetPool->getDescriptorSet(_device, frameInFlightId);
+    VkDescriptorSet descriptorSet = _descriptorSetPoolCompute->getDescriptorSet(_device, frameInFlightId);
 
     // update DS, bind pipeline, bind DS, dispatch
     VkDescriptorImageInfo imageInfo {
         .imageView = renderTarget->getView(),
         .imageLayout = VK_IMAGE_LAYOUT_GENERAL
     };
-    _descriptorSetPool->updateDescriptorSet(_device, commandBuffer, descriptorSet, _computePipeline->getLayout(), imageInfo);
-    _computePipeline->bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    _descriptorSetPool->bind(commandBuffer, descriptorSet, VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline->getLayout());
+    _descriptorSetPoolCompute->updateDescriptorSet(_device, commandBuffer, descriptorSet, _computePipeline->getLayout(), imageInfo);
+    _descriptorSetPoolCompute->bind(commandBuffer, descriptorSet, VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline->getLayout());
     _computePipeline->dispatch(commandBuffer, { std::ceil(renderTarget->getWidth() / 8.f), std::ceil(renderTarget->getHeight() / 8.f), 1 });
 
-    renderTarget->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-    
+    renderTarget->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    // TODO: watch for the tiny vector allocations
+    _graphicsPipeline->draw(commandBuffer,
+        { renderTarget->getWidth(), renderTarget->getHeight() },
+        { renderTarget->getAttachmentInfo() });
+
+    renderTarget->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
     _swapchainTextures[swapchainImageId]->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     renderTarget->blit(commandBuffer, *_swapchainTextures[swapchainImageId]);
 
-    _swapchainTextures[swapchainImageId]->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    _swapchainTextures[swapchainImageId]->insertBarrier(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     vkEndCommandBuffer(commandBuffer);
     VKUtils::submitCommandBuffer(_graphicsQueue,
